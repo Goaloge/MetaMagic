@@ -24,6 +24,9 @@ This file describes the current development state. Features listed as implemente
 - Exact duplicate detection with byte comparison and confirmed moves to the system trash.
 - Local audio playback, transport controls, seeking, and volume controls. Codec support depends on the operating system's WebView.
 - Technical file information, settings, keyboard shortcuts, and file management actions.
+- YouTube Music search results with automatic fuzzy matching against the local library, multi-select checkboxes, and a right-click selection menu. Selected results can be downloaded as MP3s with embedded title, artist, album, and thumbnail artwork; the chosen output folder is remembered and downloaded files are imported into the library.
+- yt-dlp and Deno can be installed or updated from official GitHub releases in the application data folder. FFmpeg is checked for updates and managed through Homebrew, winget, or supported Linux package managers.
+- Local video-to-MP3 conversion through FFmpeg with selectable bitrate.
 
 ## Verification completed
 
