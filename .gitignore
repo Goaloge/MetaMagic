@@ -1,0 +1,22 @@
+# Node / Vite
+node_modules/
+dist/
+
+# Rust / Tauri build output
+src-tauri/target/
+src-tauri/gen/
+
+# Local data, secrets, and backups
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite3
+*.db
+*.metamagic.bak
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

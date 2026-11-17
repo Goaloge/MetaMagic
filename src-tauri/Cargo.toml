@@ -1,0 +1,29 @@
+[package]
+name = "metamagic"
+version = "0.1.0"
+description = "Cross-platform music library and metadata manager"
+authors = ["MetaMagic"]
+edition = "2021"
+
+[lib]
+name = "metamagic_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-persisted-scope = { version = "2", features = ["protocol-asset"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.13", features = ["json", "query"] }
+tokio = { version = "1", features = ["sync", "time"] }
+walkdir = "2"
+lofty = "0.22"
+rusqlite = { version = "0.38", features = ["bundled"] }
+trash = "5.3.0"
+symphonia = { version = "0.5", features = ["all"] }
+rustfft = "6"
