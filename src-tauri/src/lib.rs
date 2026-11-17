@@ -1328,7 +1328,7 @@ async fn lrclib_request(endpoint: &str, query: &[(&str, &str)]) -> Result<Lrclib
         .await;
     wait_for_lrclib_slot().await?;
     let response = reqwest::Client::builder()
-        .user_agent("MetaMagic/0.3.0 (desktop music manager)")
+        .user_agent("MetaMagic/0.3.1 (desktop music manager)")
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|e| format!("Lyrics-Suche konnte nicht gestartet werden: {e}"))?
@@ -1494,7 +1494,7 @@ async fn search_musicbrainz_candidates(
     }
     let query = terms.join(" AND ");
     let client = reqwest::Client::builder()
-        .user_agent("MetaMagic/0.3.0 (desktop music metadata lookup)")
+        .user_agent("MetaMagic/0.3.1 (desktop music metadata lookup)")
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|e| format!("Online-Suche konnte nicht gestartet werden: {e}"))?;
@@ -1651,7 +1651,7 @@ fn auto_tag_score(title: &str, artist: &str, album: &str, candidate: &AutoTagCan
 async fn search_itunes_candidates(title: &str, artist: &str, album: &str) -> Result<Vec<AutoTagCandidate>, String> {
     if title.trim().is_empty() && artist.trim().is_empty() { return Ok(Vec::new()); }
     let query = format!("{} {} {}", artist.trim(), title.trim(), album.trim()).trim().to_owned();
-    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.0 (desktop music metadata lookup)").timeout(Duration::from_secs(15)).build().map_err(|error| error.to_string())?;
+    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.1 (desktop music metadata lookup)").timeout(Duration::from_secs(15)).build().map_err(|error| error.to_string())?;
     let response = client.get("https://itunes.apple.com/search/").query(&[("term", query.as_str()), ("entity", "song"), ("limit", "25")]).send().await.map_err(|error| format!("Apple iTunes ist nicht erreichbar: {error}"))?;
     if !response.status().is_success() { return Err(format!("Apple iTunes-Suche fehlgeschlagen (HTTP {})", response.status())); }
     let json = response.json::<serde_json::Value>().await.map_err(|error| format!("Apple iTunes-Antwort konnte nicht gelesen werden: {error}"))?;
@@ -1687,7 +1687,7 @@ async fn search_itunes_candidates(title: &str, artist: &str, album: &str) -> Res
 async fn search_discogs_candidates(title: &str, artist: &str, album: &str, token: Option<&str>) -> Result<Vec<AutoTagCandidate>, String> {
     if title.trim().is_empty() && artist.trim().is_empty() && album.trim().is_empty() { return Ok(Vec::new()); }
     let query = format!("{} {} {}", artist.trim(), album.trim(), title.trim()).trim().to_owned();
-    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.0 +https://github.com/Goaloge/MetaMagic (desktop music metadata lookup)").timeout(Duration::from_secs(15)).build().map_err(|error| error.to_string())?;
+    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.1 +https://github.com/Goaloge/MetaMagic (desktop music metadata lookup)").timeout(Duration::from_secs(15)).build().map_err(|error| error.to_string())?;
     let mut request = client.get("https://api.discogs.com/database/search/").query(&[("q", query.as_str()), ("type", "release"), ("per_page", "5")]);
     if let Some(token) = token.filter(|value| !value.trim().is_empty()) { request = request.query(&[("token", token.trim())]); }
     let response = request.send().await.map_err(|error| format!("Discogs ist nicht erreichbar: {error}"))?;
@@ -1750,7 +1750,7 @@ async fn search_album_covers(album: String, artist: String, discogs_token: Optio
     let album = album.trim();
     let artist = artist.trim();
     if album.is_empty() { return Err("Gib einen Albumnamen ein.".into()); }
-    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.0 (desktop music library)").timeout(Duration::from_secs(18)).build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.1 (desktop music library)").timeout(Duration::from_secs(18)).build().map_err(|e| e.to_string())?;
     let mut results = Vec::new();
     let query = format!("{} {}", artist, album).trim().to_owned();
 
@@ -1828,7 +1828,7 @@ async fn apply_album_cover(app: tauri::AppHandle, paths: Vec<String>, image_url:
     if paths.is_empty() { return Err("Es wurden keine Titel zum Aktualisieren angegeben.".into()); }
     let parsed = reqwest::Url::parse(&image_url).map_err(|e| format!("Ungültige Cover-Adresse: {e}"))?;
     if !matches!(parsed.scheme(), "https" | "http") { return Err("Das Cover muss über HTTP oder HTTPS erreichbar sein.".into()); }
-    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.0 (desktop music library)").timeout(Duration::from_secs(25)).build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.1 (desktop music library)").timeout(Duration::from_secs(25)).build().map_err(|e| e.to_string())?;
     let response = client.get(parsed).send().await.map_err(|e| format!("Coverbild konnte nicht geladen werden: {e}"))?.error_for_status().map_err(|e| format!("Coverbild konnte nicht geladen werden: {e}"))?;
     let mime = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).map(str::to_owned);
     let bytes = response.bytes().await.map_err(|e| format!("Coverbild konnte nicht gelesen werden: {e}"))?;

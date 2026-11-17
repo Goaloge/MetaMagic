@@ -1,6 +1,6 @@
 [package]
 name = "metamagic"
-version = "0.3.0"
+version = "0.3.1"
 description = "Cross-platform music library and metadata manager"
 authors = ["MetaMagic"]
 edition = "2021"
