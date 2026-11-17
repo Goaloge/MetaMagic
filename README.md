@@ -1,6 +1,6 @@
 # MetaMagic
 
-**Current version: 0.2.0**
+**Current version: 0.3.0**
 
 MetaMagic is a native desktop music library manager and tag editor built with **Tauri 2**, **React**, and **Rust**. It is designed for macOS, Linux, and Windows, with local-first library management and DJ-focused metadata tools.
 
@@ -14,7 +14,8 @@ MetaMagic is a native desktop music library manager and tag editor built with **
 - Choose the number of tracks per table page or show all tracks in one virtualized list; sort table columns by clicking to switch between ascending and descending order, reorder columns by dragging, and adjust their widths.
 - Read and edit common metadata, including track/disc totals, compilation status, credits, identifiers, comments, and lyrics.
 - Read ID3v2.2, ID3v2.3, and ID3v2.4 tags through Lofty.
-- Browse, add, remove, and classify embedded artwork; export artwork as a folder image.
+- Search track metadata in MusicBrainz, Apple iTunes, and Discogs; review scored candidates and apply selected proposals to up to 15 checked tracks at a time.
+- Browse, add, remove, and classify embedded artwork; set the containing macOS folder's native icon from its cover.
 - Search YouTube Music, check likely matches in the local library, and download selected results as tagged MP3s with embedded artwork. Mark multiple results and use the right-click menu for bulk selection. yt-dlp and Deno are managed in app data; FFmpeg is installed or updated through the platform package manager.
 - Convert local video files to MP3 with FFmpeg and selectable bitrate. Audio is extracted from local files; search results are not downloaded.
 - Preview batch tag edits, text transformations, and tag-based filename changes before applying them.
@@ -59,10 +60,12 @@ Contributions and issue reports are welcome. Please describe the operating syste
 
 MetaMagic can download the official yt-dlp release binary and Deno into its application data directory. FFmpeg is installed or updated through Homebrew on macOS, winget on Windows, or supported Linux package managers. The app checks tool versions when the download panel opens. yt-dlp requires FFmpeg for audio extraction and a JavaScript runtime such as Deno for full YouTube support; see the [yt-dlp documentation](https://github.com/yt-dlp/yt-dlp#dependencies). The [FFmpeg download page](https://ffmpeg.org/download.html) links to platform-specific builds. Tool licensing follows the selected upstream build; yt-dlp's standalone release files and FFmpeg builds may have different license terms.
 
-## What's new in 0.2.0
+## What's new in 0.3.0
 
-- Find album artwork through iTunes, Discogs, and MusicBrainz, then embed the selected image as the ID3 front cover.
+- Find album artwork through iTunes, Discogs, and MusicBrainz, then embed the selected image as the ID3 front cover. Cover search shows original image resolution when inspecting a result.
 - Search YouTube Music, match results against the local library, and download selected tracks with metadata and artwork.
 - Install or update yt-dlp and Deno in the app; check and manage FFmpeg through the platform package manager.
 - Convert local video files to MP3 with a selectable bitrate.
 - Improve recovery and artwork loading for ID3-tagged MP3 files.
+- Expand automatic tagging to MusicBrainz, Apple iTunes, and Discogs, with review-first batches for up to 15 selected tracks.
+- Set the containing folder's native icon on macOS directly from the cover.

@@ -1080,63 +1080,115 @@ fn set_track_picture_type(path: String, index: usize, picture_type: String) -> R
         .map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-fn export_folder_artwork(path: String, overwrite: bool) -> Result<String, String> {
-    let audio_path = PathBuf::from(&path);
-    let tagged = read_tagged(&audio_path)?;
-    let picture = tagged
-        .tags()
-        .iter()
-        .find_map(|tag| tag.get_picture_type(PictureType::CoverFront))
-        .or_else(|| tagged.tags().iter().find_map(|tag| tag.pictures().first()))
-        .ok_or_else(|| "In dieser Audiodatei ist kein Coverbild eingebettet".to_string())?;
-    let ext = picture
-        .mime_type()
-        .and_then(|mime| mime.ext())
-        .unwrap_or_else(|| {
-            let data = picture.data();
-            if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
-                "jpg"
-            } else if data.starts_with(b"\x89PNG\r\n\x1a\n") {
-                "png"
-            } else {
-                "jpg"
+fn folder_cover_bytes(app: &tauri::AppHandle, audio_path: &Path) -> Result<Vec<u8>, String> {
+    if let Ok(tagged) = read_tagged(audio_path) {
+        if let Some(picture) = tagged
+            .tags()
+            .iter()
+            .find_map(|tag| tag.get_picture_type(PictureType::CoverFront))
+            .or_else(|| tagged.tags().iter().find_map(|tag| tag.pictures().first()))
+        {
+            return Ok(picture.data().to_vec());
+        }
+    }
+    let path = audio_path.to_string_lossy();
+    if let Ok(db) = database(app) {
+        let cached: Option<Vec<u8>> = db
+            .query_row(
+                "SELECT image FROM track_artwork_cache WHERE path=?1",
+                [path.as_ref()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        if let Some(image) = cached.filter(|image| !image.is_empty()) {
+            return Ok(image);
+        }
+    }
+    if let Some(folder) = audio_path.parent() {
+        for name in ["cover.jpg", "cover.jpeg", "cover.png", "cover.webp", "folder.jpg", "folder.jpeg", "folder.png", "folder.webp", "front.jpg", "front.jpeg", "front.png", "album.jpg", "album.png"] {
+            if let Ok(image) = std::fs::read(folder.join(name)) {
+                if !image.is_empty() {
+                    return Ok(image);
+                }
             }
-        });
-    let folder = audio_path
-        .parent()
-        .ok_or_else(|| "Der Audiodatei fehlt ein gültiger Ordner".to_string())?;
-    let destination = folder.join(format!("folder.{ext}"));
-    if destination.exists() && !overwrite {
-        return Err(format!("EXISTS:{}", destination.to_string_lossy()));
-    }
-    let mut temp = destination.clone();
-    temp.set_extension(format!("{ext}.metamagic-{}.tmp", std::process::id()));
-    std::fs::write(&temp, picture.data())
-        .map_err(|e| format!("Ordnerbild konnte nicht geschrieben werden: {e}"))?;
-    let mut previous = destination.clone();
-    previous.set_extension(format!("{ext}.metamagic-{}.bak", std::process::id()));
-    if destination.exists() {
-        if let Err(error) = std::fs::rename(&destination, &previous) {
-            let _ = std::fs::remove_file(&temp);
-            return Err(format!(
-                "Vorhandenes Ordnerbild konnte nicht gesichert werden: {error}"
-            ));
         }
     }
-    if let Err(error) = std::fs::rename(&temp, &destination) {
-        let _ = std::fs::remove_file(&temp);
-        if previous.exists() {
-            let _ = std::fs::rename(&previous, &destination);
+    Err("Für diesen Titel wurde kein eingebettetes oder lokales Cover gefunden.".into())
+}
+
+#[cfg(target_os = "macos")]
+fn apply_native_folder_icon(folder: &Path, image: &[u8]) -> Result<(), String> {
+    use std::{ffi::{c_char, c_void, CString}, mem};
+    type Obj = *mut c_void;
+    type Sel = *mut c_void;
+    #[link(name = "objc")]
+    extern "C" {
+        fn objc_getClass(name: *const c_char) -> Obj;
+        fn sel_registerName(name: *const c_char) -> Sel;
+        fn objc_msgSend();
+    }
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {}
+    #[link(name = "Foundation", kind = "framework")]
+    extern "C" {}
+
+    unsafe {
+        let selector = |name: &str| -> Result<Sel, String> {
+            let name = CString::new(name).map_err(|error| error.to_string())?;
+            Ok(sel_registerName(name.as_ptr()))
+        };
+        let send0: unsafe extern "C" fn(Obj, Sel) -> Obj = mem::transmute(objc_msgSend as *const ());
+        let string_from_utf8: unsafe extern "C" fn(Obj, Sel, *const c_char) -> Obj = mem::transmute(objc_msgSend as *const ());
+        let data_from_bytes: unsafe extern "C" fn(Obj, Sel, *const c_void, usize) -> Obj = mem::transmute(objc_msgSend as *const ());
+        let init_image: unsafe extern "C" fn(Obj, Sel, Obj) -> Obj = mem::transmute(objc_msgSend as *const ());
+        let set_icon: unsafe extern "C" fn(Obj, Sel, Obj, Obj, usize) -> i8 = mem::transmute(objc_msgSend as *const ());
+
+        let pool_class = objc_getClass(CString::new("NSAutoreleasePool").unwrap().as_ptr());
+        let pool = send0(send0(pool_class, selector("alloc")?), selector("init")?);
+        let ns_string = objc_getClass(CString::new("NSString").unwrap().as_ptr());
+        let folder_c = CString::new(folder.to_string_lossy().as_bytes()).map_err(|error| error.to_string())?;
+        let folder_string = string_from_utf8(ns_string, selector("stringWithUTF8String:")?, folder_c.as_ptr());
+        let ns_data = objc_getClass(CString::new("NSData").unwrap().as_ptr());
+        let data = data_from_bytes(ns_data, selector("dataWithBytes:length:")?, image.as_ptr().cast(), image.len());
+        let ns_image = objc_getClass(CString::new("NSImage").unwrap().as_ptr());
+        let image_object = init_image(send0(ns_image, selector("alloc")?), selector("initWithData:")?, data);
+        if image_object.is_null() {
+            let _ = send0(pool, selector("drain")?);
+            return Err("Das Coverbild konnte von macOS nicht als Ordnersymbol geladen werden.".into());
         }
-        return Err(format!(
-            "Ordnerbild konnte nicht gespeichert werden: {error}"
-        ));
+        let workspace_class = objc_getClass(CString::new("NSWorkspace").unwrap().as_ptr());
+        let workspace = send0(workspace_class, selector("sharedWorkspace")?);
+        let ok = set_icon(workspace, selector("setIcon:forFile:options:")?, image_object, folder_string, 0);
+        let _ = send0(image_object, selector("release")?);
+        let _ = send0(pool, selector("drain")?);
+        if ok == 0 { return Err("macOS konnte das Ordnersymbol nicht ändern. Prüfe, ob der Ordner beschreibbar ist.".into()); }
     }
-    if previous.exists() {
-        let _ = std::fs::remove_file(previous);
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn apply_native_folder_icon(_folder: &Path, _image: &[u8]) -> Result<(), String> {
+    Err("Das direkte Ändern des Ordnersymbols ist derzeit nur unter macOS verfügbar.".into())
+}
+
+#[tauri::command]
+fn set_folder_icon(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    let audio_path = PathBuf::from(&path);
+    let folder = audio_path.parent().ok_or_else(|| "Der Audiodatei fehlt ein gültiger Ordner".to_string())?.to_path_buf();
+    let image = folder_cover_bytes(&app, &audio_path)?;
+    #[cfg(target_os = "macos")]
+    {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let icon_folder = folder.clone();
+        app.run_on_main_thread(move || {
+            let _ = sender.send(apply_native_folder_icon(&icon_folder, &image));
+        }).map_err(|error| format!("macOS-Hauptthread konnte nicht gestartet werden: {error}"))?;
+        receiver.recv().map_err(|error| format!("macOS-Ordnersymbol konnte nicht bestätigt werden: {error}"))??;
     }
-    Ok(destination.to_string_lossy().into_owned())
+    #[cfg(not(target_os = "macos"))]
+    apply_native_folder_icon(&folder, &image)?;
+    Ok(folder.to_string_lossy().into_owned())
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1160,8 +1212,9 @@ struct ScanSummary {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct MusicBrainzCandidate {
+struct AutoTagCandidate {
     id: String,
+    source: String,
     score: u8,
     title: String,
     artist: String,
@@ -1275,7 +1328,7 @@ async fn lrclib_request(endpoint: &str, query: &[(&str, &str)]) -> Result<Lrclib
         .await;
     wait_for_lrclib_slot().await?;
     let response = reqwest::Client::builder()
-        .user_agent("MetaMagic/0.1.0 (desktop music manager)")
+        .user_agent("MetaMagic/0.3.0 (desktop music manager)")
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|e| format!("Lyrics-Suche konnte nicht gestartet werden: {e}"))?
@@ -1417,12 +1470,11 @@ fn musicbrainz_credit(value: &serde_json::Value) -> String {
         .unwrap_or_default()
 }
 
-#[tauri::command]
-async fn search_musicbrainz(
+async fn search_musicbrainz_candidates(
     title: String,
     artist: String,
     album: String,
-) -> Result<Vec<MusicBrainzCandidate>, String> {
+) -> Result<Vec<AutoTagCandidate>, String> {
     let title = title.trim();
     let artist = artist.trim();
     let album = album.trim();
@@ -1442,7 +1494,7 @@ async fn search_musicbrainz(
     }
     let query = terms.join(" AND ");
     let client = reqwest::Client::builder()
-        .user_agent("MetaMagic/0.1.0 (desktop music metadata lookup)")
+        .user_agent("MetaMagic/0.3.0 (desktop music metadata lookup)")
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(|e| format!("Online-Suche konnte nicht gestartet werden: {e}"))?;
@@ -1496,14 +1548,15 @@ async fn search_musicbrainz(
                     .or_else(|| items.first())
             });
             let media = release.and_then(|item| item["media"].as_array());
-            let medium = media.and_then(|items| items.first());
-            let track = medium
-                .and_then(|item| {
-                    item["tracks"]
-                        .as_array()
-                        .or_else(|| item["track"].as_array())
-                })
-                .and_then(|items| items.first());
+            let matched_track = media.and_then(|media_items| media_items.iter().find_map(|medium| {
+                medium["tracks"].as_array().or_else(|| medium["track"].as_array())
+                    .and_then(|items| items.iter().find(|item| item["recording"]["id"] == recording["id"]).map(|track| (medium, track)))
+            }));
+            let (medium, track) = matched_track.or_else(|| {
+                let medium = media?.first()?;
+                let track = medium["tracks"].as_array().or_else(|| medium["track"].as_array())?.first()?;
+                Some((medium, track))
+            }).map(|(medium, track)| (Some(medium), Some(track))).unwrap_or((None, None));
             let year = release
                 .and_then(|item| item["date"].as_str())
                 .or_else(|| recording["first-release-date"].as_str())
@@ -1527,8 +1580,9 @@ async fn search_musicbrainz(
                         .iter()
                         .any(|item| item.as_str() == Some("Compilation"))
                 });
-            candidates.push(MusicBrainzCandidate {
+            candidates.push(AutoTagCandidate {
                 id: recording["id"].as_str().unwrap_or_default().to_string(),
+                source: "MusicBrainz".into(),
                 score,
                 title: recording["title"].as_str().unwrap_or_default().to_string(),
                 artist: musicbrainz_credit(&recording["artist-credit"]),
@@ -1569,12 +1623,134 @@ async fn search_musicbrainz(
     Ok(candidates)
 }
 
+fn auto_tag_score(title: &str, artist: &str, album: &str, candidate: &AutoTagCandidate) -> u8 {
+    fn overlap(query: &str, value: &str) -> Option<f64> {
+        let words = |text: &str| text.to_lowercase().split(|ch: char| !ch.is_alphanumeric()).filter(|word| !word.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+        let query_words = words(query);
+        let value_words = words(value);
+        if query_words.is_empty() || value_words.is_empty() { return None; }
+        if query_words == value_words { return Some(1.0); }
+        let common = query_words.iter().filter(|word| value_words.contains(word)).count();
+        Some(common as f64 / query_words.len() as f64)
+    }
+    let mut total = 0.0;
+    let mut weight = 0.0;
+    for (query, value, field_weight) in [
+        (title, candidate.title.as_str(), 0.62),
+        (artist, candidate.artist.as_str(), 0.28),
+        (album, candidate.album.as_str(), 0.10),
+    ] {
+        if let Some(score) = overlap(query, value) {
+            total += score * field_weight;
+            weight += field_weight;
+        }
+    }
+    if weight == 0.0 { 0 } else { (100.0 * total / weight).round().clamp(0.0, 100.0) as u8 }
+}
+
+async fn search_itunes_candidates(title: &str, artist: &str, album: &str) -> Result<Vec<AutoTagCandidate>, String> {
+    if title.trim().is_empty() && artist.trim().is_empty() { return Ok(Vec::new()); }
+    let query = format!("{} {} {}", artist.trim(), title.trim(), album.trim()).trim().to_owned();
+    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.0 (desktop music metadata lookup)").timeout(Duration::from_secs(15)).build().map_err(|error| error.to_string())?;
+    let response = client.get("https://itunes.apple.com/search/").query(&[("term", query.as_str()), ("entity", "song"), ("limit", "25")]).send().await.map_err(|error| format!("Apple iTunes ist nicht erreichbar: {error}"))?;
+    if !response.status().is_success() { return Err(format!("Apple iTunes-Suche fehlgeschlagen (HTTP {})", response.status())); }
+    let json = response.json::<serde_json::Value>().await.map_err(|error| format!("Apple iTunes-Antwort konnte nicht gelesen werden: {error}"))?;
+    let mut candidates = Vec::new();
+    if let Some(items) = json["results"].as_array() {
+        for item in items {
+            let candidate_title = item["trackName"].as_str().unwrap_or_default();
+            if candidate_title.is_empty() { continue; }
+            let mut candidate = AutoTagCandidate {
+                id: format!("itunes:{}", item["trackId"].as_i64().unwrap_or(0)),
+                source: "Apple iTunes".into(),
+                score: 0,
+                title: candidate_title.into(),
+                artist: item["artistName"].as_str().unwrap_or_default().into(),
+                album: item["collectionName"].as_str().unwrap_or_default().into(),
+                album_artist: item["artistName"].as_str().unwrap_or_default().into(),
+                year: item["releaseDate"].as_str().unwrap_or_default().chars().take(4).collect(),
+                track: item["trackNumber"].as_u64().map(|value| value.to_string()).unwrap_or_default(),
+                track_total: item["trackCount"].as_u64().map(|value| value.to_string()).unwrap_or_default(),
+                disc: item["discNumber"].as_u64().map(|value| value.to_string()).unwrap_or_default(),
+                disc_total: item["discCount"].as_u64().map(|value| value.to_string()).unwrap_or_default(),
+                compilation: false,
+            };
+            candidate.score = auto_tag_score(title, artist, album, &candidate);
+            candidates.push(candidate);
+        }
+    }
+    candidates.sort_by(|left, right| right.score.cmp(&left.score));
+    candidates.truncate(15);
+    Ok(candidates)
+}
+
+async fn search_discogs_candidates(title: &str, artist: &str, album: &str, token: Option<&str>) -> Result<Vec<AutoTagCandidate>, String> {
+    if title.trim().is_empty() && artist.trim().is_empty() && album.trim().is_empty() { return Ok(Vec::new()); }
+    let query = format!("{} {} {}", artist.trim(), album.trim(), title.trim()).trim().to_owned();
+    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.0 +https://github.com/Goaloge/MetaMagic (desktop music metadata lookup)").timeout(Duration::from_secs(15)).build().map_err(|error| error.to_string())?;
+    let mut request = client.get("https://api.discogs.com/database/search/").query(&[("q", query.as_str()), ("type", "release"), ("per_page", "5")]);
+    if let Some(token) = token.filter(|value| !value.trim().is_empty()) { request = request.query(&[("token", token.trim())]); }
+    let response = request.send().await.map_err(|error| format!("Discogs ist nicht erreichbar: {error}"))?;
+    if !response.status().is_success() { return Err(format!("Discogs-Suche fehlgeschlagen (HTTP {})", response.status())); }
+    let json = response.json::<serde_json::Value>().await.map_err(|error| format!("Discogs-Antwort konnte nicht gelesen werden: {error}"))?;
+    let mut candidates = Vec::new();
+    if let Some(releases) = json["results"].as_array() {
+        for hit in releases.iter().take(2) {
+            let Some(id) = hit["id"].as_u64() else { continue; };
+            let response = match client.get(format!("https://api.discogs.com/releases/{id}")).send().await { Ok(response) if response.status().is_success() => response, _ => continue };
+            let release = match response.json::<serde_json::Value>().await { Ok(json) => json, Err(_) => continue };
+            let album_title = release["title"].as_str().unwrap_or_default();
+            let album_artist = release["artists"].as_array().map(|items| items.iter().filter_map(|item| item["name"].as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
+            let tracks = release["tracklist"].as_array();
+            let best_track = tracks.and_then(|items| items.iter().filter(|item| item["type_"].as_str().map(|kind| kind != "heading").unwrap_or(true)).max_by_key(|item| {
+                let candidate = AutoTagCandidate { id: String::new(), source: "Discogs".into(), score: 0, title: item["title"].as_str().unwrap_or_default().into(), artist: album_artist.clone(), album: album_title.into(), album_artist: album_artist.clone(), year: String::new(), track: String::new(), track_total: String::new(), disc: String::new(), disc_total: String::new(), compilation: false };
+                auto_tag_score(title, artist, album, &candidate)
+            }));
+            let Some(track) = best_track else { continue; };
+            let track_title = track["title"].as_str().unwrap_or_default();
+            let mut candidate = AutoTagCandidate {
+                id: format!("discogs:{id}:{}", track["position"].as_str().unwrap_or_default()),
+                source: "Discogs".into(),
+                score: 0,
+                title: track_title.into(),
+                artist: track["artists"].as_array().map(|items| items.iter().filter_map(|item| item["name"].as_str()).collect::<Vec<_>>().join(", ")).filter(|value| !value.is_empty()).unwrap_or_else(|| album_artist.clone()),
+                album: album_title.into(),
+                album_artist: album_artist.clone(),
+                year: release["year"].as_i64().map(|value| value.to_string()).or_else(|| release["year"].as_str().map(str::to_owned)).unwrap_or_default(),
+                track: track["position"].as_str().and_then(|value| value.chars().take_while(char::is_ascii_digit).collect::<String>().parse::<u32>().ok()).map(|value| value.to_string()).unwrap_or_default(),
+                track_total: tracks.map(|items| items.iter().filter(|item| item["type_"].as_str() != Some("heading")).count().to_string()).unwrap_or_default(),
+                disc: "1".into(),
+                disc_total: release["formats"].as_array().and_then(|items| items.first()).and_then(|item| item["qty"].as_str()).unwrap_or("1").into(),
+                compilation: album_artist.to_lowercase().contains("various"),
+            };
+            candidate.score = auto_tag_score(title, artist, album, &candidate);
+            if candidate.score >= 35 { candidates.push(candidate); }
+        }
+    }
+    candidates.sort_by(|left, right| right.score.cmp(&left.score));
+    Ok(candidates)
+}
+
+#[tauri::command]
+async fn search_auto_tags(title: String, artist: String, album: String, discogs_token: Option<String>) -> Result<Vec<AutoTagCandidate>, String> {
+    if title.trim().is_empty() && artist.trim().is_empty() { return Err("Gib mindestens Titel oder Interpret für die Suche ein.".into()); }
+    let mut candidates = Vec::new();
+    let mut errors = Vec::new();
+    match search_musicbrainz_candidates(title.clone(), artist.clone(), album.clone()).await { Ok(rows) => candidates.extend(rows), Err(error) => errors.push(error) }
+    match search_itunes_candidates(&title, &artist, &album).await { Ok(rows) => candidates.extend(rows), Err(error) => errors.push(error) }
+    match search_discogs_candidates(&title, &artist, &album, discogs_token.as_deref()).await { Ok(rows) => candidates.extend(rows), Err(error) => errors.push(error) }
+    if candidates.is_empty() && errors.len() == 3 { return Err(format!("Keine Katalogquelle erreichbar: {}", errors.join(" · "))); }
+    candidates.sort_by(|left, right| right.score.cmp(&left.score));
+    candidates.truncate(30);
+    Ok(candidates)
+}
+
 #[tauri::command]
 async fn search_album_covers(album: String, artist: String, discogs_token: Option<String>) -> Result<Vec<CoverSearchResult>, String> {
     let album = album.trim();
     let artist = artist.trim();
     if album.is_empty() { return Err("Gib einen Albumnamen ein.".into()); }
-    let client = reqwest::Client::builder().user_agent("MetaMagic/0.1.0 (desktop music library)").timeout(Duration::from_secs(18)).build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.0 (desktop music library)").timeout(Duration::from_secs(18)).build().map_err(|e| e.to_string())?;
     let mut results = Vec::new();
     let query = format!("{} {}", artist, album).trim().to_owned();
 
@@ -1652,7 +1828,7 @@ async fn apply_album_cover(app: tauri::AppHandle, paths: Vec<String>, image_url:
     if paths.is_empty() { return Err("Es wurden keine Titel zum Aktualisieren angegeben.".into()); }
     let parsed = reqwest::Url::parse(&image_url).map_err(|e| format!("Ungültige Cover-Adresse: {e}"))?;
     if !matches!(parsed.scheme(), "https" | "http") { return Err("Das Cover muss über HTTP oder HTTPS erreichbar sein.".into()); }
-    let client = reqwest::Client::builder().user_agent("MetaMagic/0.1.0 (desktop music library)").timeout(Duration::from_secs(25)).build().map_err(|e| e.to_string())?;
+    let client = reqwest::Client::builder().user_agent("MetaMagic/0.3.0 (desktop music library)").timeout(Duration::from_secs(25)).build().map_err(|e| e.to_string())?;
     let response = client.get(parsed).send().await.map_err(|e| format!("Coverbild konnte nicht geladen werden: {e}"))?.error_for_status().map_err(|e| format!("Coverbild konnte nicht geladen werden: {e}"))?;
     let mime = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).map(str::to_owned);
     let bytes = response.bytes().await.map_err(|e| format!("Coverbild konnte nicht gelesen werden: {e}"))?;
@@ -3283,7 +3459,7 @@ pub fn run() {
         .plugin(tauri_plugin_persisted_scope::init())
         .invoke_handler(tauri::generate_handler![
             scan_files,
-            search_musicbrainz,
+            search_auto_tags,
             search_album_covers,
             apply_album_cover,
             search_lyrics,
@@ -3311,7 +3487,7 @@ pub fn run() {
             redo_tag_changes,
             list_tag_history,
             inspect_file,
-            export_folder_artwork,
+            set_folder_icon,
             get_track_artwork,
             get_track_pictures,
             add_track_picture,

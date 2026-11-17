@@ -45,8 +45,9 @@ Build a reliable native music library manager for macOS, Linux, and Windows. Use
 
 ### Phase 4 — Online metadata and automatic tagging
 
-- Add provider adapters, starting with documented MusicBrainz and Discogs APIs where appropriate.
-- Show candidate releases, track mapping, source attribution, confidence, and proposed changes.
+- Add provider adapters for MusicBrainz, Apple iTunes, and Discogs, respecting each catalog's usage limits.
+- Show candidate tracks, accurate release track mapping, source attribution, match scores, and proposed changes.
+- Support review-first batch lookup and selective application for checked tracks.
 - Add artwork search and selection with clear overwrite controls.
 - Consider audio fingerprinting only after reviewing the provider's API terms, cost, privacy, and platform requirements.
 
