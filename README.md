@@ -8,6 +8,8 @@ MetaMagic is a native desktop music library manager and tag editor built with **
 
 - Scan local audio files and folders into a persistent SQLite library.
 - Browse tracks, albums, artists, playlists, favorites, and incomplete tags.
+- Browse albums and artists grouped from metadata tags in either cover-tile or list views.
+- Choose the number of tracks per table page or show all tracks in one virtualized list; sort table columns by clicking to switch between ascending and descending order, reorder columns by dragging, and adjust their widths.
 - Read and edit common metadata, including track/disc totals, compilation status, credits, identifiers, comments, and lyrics.
 - Read ID3v2.2, ID3v2.3, and ID3v2.4 tags through Lofty.
 - Browse, add, remove, and classify embedded artwork; export artwork as a folder image.

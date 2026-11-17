@@ -7,6 +7,8 @@ This file describes the current development state. Features listed as implemente
 - Native Tauri 2 desktop shell with a React UI and Rust backend.
 - Local audio and folder selection, recursive scanning, import progress, and a persistent SQLite library.
 - Virtualized track list, album and artist views, playlist management, favorites, search, sorting, filters, and configurable columns.
+- Track table pagination with a configurable page size (25–500 tracks or all tracks in one virtualized list), drag-to-reorder columns, and adjustable column widths. These display preferences are stored locally.
+- Album and artist views are grouped from read metadata tags rather than filenames. They support both cover tiles and a compact list layout; unknown artist tags are omitted and compilation albums are grouped under “Various Artists”.
 - Completeness scoring for common metadata and artwork fields, with an incomplete-tags worklist.
 - Tag reading and writing through Lofty, including ID3v2.2, ID3v2.3, and ID3v2.4 support. The exact fields available for reading or writing depend on the audio format.
 - Extended tag editor for track/disc numbers and totals, compilation flag, composer, work/movement, BPM, grouping, comments, lyrics, and additional credits, dates, and identifiers.
