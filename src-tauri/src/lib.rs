@@ -1012,20 +1012,6 @@ fn get_track_pictures(path: String) -> Result<Vec<TrackPicture>, String> {
         .collect())
 }
 
-fn backup_picture_target(path: &Path) -> Result<(), String> {
-    let mut backup = path.to_path_buf();
-    let ext = backup
-        .extension()
-        .and_then(|x| x.to_str())
-        .unwrap_or("audio");
-    backup.set_extension(format!("{ext}.metamagic.bak"));
-    if !backup.exists() {
-        std::fs::copy(path, backup)
-            .map_err(|e| format!("Backup konnte nicht erstellt werden: {e}"))?;
-    }
-    Ok(())
-}
-
 #[tauri::command]
 fn add_track_picture(path: String, image_path: String, picture_type: String) -> Result<(), String> {
     let path = PathBuf::from(path);
@@ -1048,7 +1034,6 @@ fn add_track_picture(path: String, image_path: String, picture_type: String) -> 
         None,
         image,
     ));
-    backup_picture_target(&path)?;
     tagged
         .save_to_path(&path, write_options_for(&path))
         .map_err(|e| e.to_string())
@@ -1061,8 +1046,7 @@ fn remove_track_picture(app: tauri::AppHandle, path: String, index: usize) -> Re
         let mut bytes = std::fs::read(&path).map_err(|e| format!("MP3 konnte nicht gelesen werden: {e}"))?;
         if !id3_picture_frames(&bytes).is_empty() {
             remove_id3_picture_frame(&mut bytes, index)?;
-            backup_picture_target(&path)?;
-            std::fs::write(&path, bytes).map_err(|e| format!("Cover konnte nicht aus dem ID3-Tag entfernt werden: {e}"))?;
+                    std::fs::write(&path, bytes).map_err(|e| format!("Cover konnte nicht aus dem ID3-Tag entfernt werden: {e}"))?;
             database(&app)?.execute("DELETE FROM track_artwork_cache WHERE path=?1", [path.to_string_lossy().as_ref()]).map_err(|e| e.to_string())?;
             return Ok(());
         }
@@ -1071,7 +1055,6 @@ fn remove_track_picture(app: tauri::AppHandle, path: String, index: usize) -> Re
     let tag_type = tagged.tags().iter().find(|tag| index < tag.pictures().len()).map(|tag| tag.tag_type()).ok_or_else(|| "Coverbild existiert nicht mehr".to_string())?;
     let tag = tagged.tag_mut(tag_type).ok_or_else(|| "Tag nicht gefunden".to_string())?;
     tag.remove_picture(index);
-    backup_picture_target(&path)?;
     tagged.save_to_path(&path, write_options_for(&path)).map_err(|e| e.to_string())?;
     database(&app)?.execute("DELETE FROM track_artwork_cache WHERE path=?1", [path.to_string_lossy().as_ref()]).map_err(|e| e.to_string())?;
     Ok(())
@@ -1092,7 +1075,6 @@ fn set_track_picture_type(path: String, index: usize, picture_type: String) -> R
         .clone();
     picture.set_pic_type(parse_picture_type(&picture_type));
     tag.set_picture(index, picture);
-    backup_picture_target(&path)?;
     tagged
         .save_to_path(&path, write_options_for(&path))
         .map_err(|e| e.to_string())
@@ -1701,8 +1683,7 @@ async fn apply_album_cover(app: tauri::AppHandle, paths: Vec<String>, image_url:
             let old = tag.pictures().iter().enumerate().filter_map(|(index, picture)| (picture.pic_type() == PictureType::CoverFront).then_some(index)).collect::<Vec<_>>();
             for index in old.into_iter().rev() { tag.remove_picture(index); }
             tag.push_picture(Picture::new_unchecked(PictureType::CoverFront, Some(MimeType::from_str(&mime)), None, bytes.to_vec()));
-            backup_picture_target(&path)?;
-            if repaired_id3 {
+                    if repaired_id3 {
                 let mut clean_audio = std::fs::read(&path).map_err(|e| e.to_string())?;
                 if !strip_leading_id3v2(&mut clean_audio) { return Err("Beschädigter ID3-Tag konnte nicht sicher entfernt werden.".into()); }
                 let temp_path = path.with_file_name(format!(".metamagic-cover-{}.tmp.mp3", std::process::id()));
@@ -2474,7 +2455,6 @@ fn apply_snapshot(path: &Path, snapshot: &Track) -> Result<(), String> {
 fn write_tags(
     app: tauri::AppHandle,
     changes: Vec<TagChanges>,
-    create_backup: bool,
 ) -> Vec<(String, Result<(), String>)> {
     let db = database(&app).ok();
     let mut snapshots: Vec<(Track, Track)> = Vec::new();
@@ -2494,7 +2474,6 @@ fn write_tags(
             apply_totals(tag,change.track_total.as_deref(),change.disc_total.as_deref())?;
             if let Some(compilation)=change.compilation{if compilation{tag.insert_text(ItemKey::FlagCompilation,"1".into());}else{tag.remove_key(&ItemKey::FlagCompilation);}}
             if let Some(extra_tags)=change.extra_tags{for (name,value) in extra_tags{let key=extra_item_key(&name).ok_or_else(||format!("Unbekanntes Tag-Feld: {name}"))?;if value.is_empty(){tag.remove_key(&key);}else{tag.insert_text(key,value);}}}
-            if create_backup { let mut backup=path.clone(); let ext=backup.extension().and_then(|x|x.to_str()).unwrap_or("audio"); backup.set_extension(format!("{ext}.metamagic.bak")); if !backup.exists(){std::fs::copy(&path,&backup).map_err(|e| format!("Backup konnte nicht erstellt werden: {e}"))?;} }
             tagged.save_to_path(&path, write_options_for(&path)).map_err(|e| e.to_string())?;
             Ok(())
         })();
@@ -2705,42 +2684,6 @@ fn redo_tag_changes(app: tauri::AppHandle) -> Result<String, String> {
 #[tauri::command]
 fn inspect_file(path: String) -> Result<Track, String> {
     read_one(Path::new(&path))
-}
-
-#[tauri::command]
-fn restore_backup(app: tauri::AppHandle, path: String) -> Result<Track, String> {
-    let original = PathBuf::from(&path);
-    let ext = original
-        .extension()
-        .and_then(|x| x.to_str())
-        .unwrap_or("audio");
-    let mut backup = original.clone();
-    backup.set_extension(format!("{ext}.metamagic.bak"));
-    if !backup.is_file() {
-        return Err("Für diese Datei wurde keine MetaMagic-Sicherung gefunden".into());
-    }
-    let nonce = std::process::id();
-    let mut staged = original.clone();
-    staged.set_extension(format!("{ext}.metamagic.restore-{nonce}.tmp"));
-    let mut rollback = original.clone();
-    rollback.set_extension(format!("{ext}.metamagic.rollback-{nonce}.tmp"));
-    std::fs::copy(&backup, &staged)
-        .map_err(|e| format!("Sicherung konnte nicht vorbereitet werden: {e}"))?;
-    std::fs::rename(&original, &rollback).map_err(|e| {
-        let _ = std::fs::remove_file(&staged);
-        format!("Aktuelle Datei konnte nicht für die Wiederherstellung gesichert werden: {e}")
-    })?;
-    if let Err(error) = std::fs::rename(&staged, &original) {
-        let rollback_error = std::fs::rename(&rollback, &original).err();
-        let _ = std::fs::remove_file(&staged);
-        return Err(match rollback_error {Some(e)=>format!("Wiederherstellung fehlgeschlagen: {error}; auch die aktuelle Datei konnte nicht zurückgesetzt werden: {e}"),None=>format!("Wiederherstellung fehlgeschlagen, aktuelle Datei wurde zurückgesetzt: {error}")});
-    }
-    let _ = std::fs::remove_file(rollback);
-    let restored = read_one(&original)?;
-    let db = database(&app)?;
-    let extras = serde_json::to_string(&restored.extra_tags).unwrap_or_else(|_| "{}".into());
-    db.execute("UPDATE tracks SET title=?2,artist=?3,album=?4,album_artist=?5,year=?6,genre=?7,track_no=?8,disc_no=?9,duration_seconds=?10,bitrate=?11,sample_rate=?12,format=?13,extra_tags_json=?14,track_total=?15,disc_total=?16,compilation=?17 WHERE path=?1",params![restored.path,restored.title,restored.artist,restored.album,restored.album_artist,restored.year,restored.genre,restored.track,restored.disc,restored.duration_seconds as i64,restored.bitrate,restored.sample_rate,restored.format,extras,restored.track_total,restored.disc_total,restored.compilation as i64]).map_err(|e|e.to_string())?;
-    Ok(restored)
 }
 
 #[derive(Serialize)]
@@ -3368,7 +3311,6 @@ pub fn run() {
             redo_tag_changes,
             list_tag_history,
             inspect_file,
-            restore_backup,
             export_folder_artwork,
             get_track_artwork,
             get_track_pictures,

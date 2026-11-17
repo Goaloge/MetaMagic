@@ -18,7 +18,7 @@ MetaMagic is a native desktop music library manager and tag editor built with **
 - Search YouTube Music, check likely matches in the local library, and download selected results as tagged MP3s with embedded artwork. Mark multiple results and use the right-click menu for bulk selection. yt-dlp and Deno are managed in app data; FFmpeg is installed or updated through the platform package manager.
 - Convert local video files to MP3 with FFmpeg and selectable bitrate. Audio is extracted from local files; search results are not downloaded.
 - Preview batch tag edits, text transformations, and tag-based filename changes before applying them.
-- Keep file backups and use the change history to undo or redo supported tag edits and renames.
+- Use the change history to undo or redo supported metadata edits and file renames. MetaMagic does not keep persistent audio-file backup copies.
 - Search LRCLIB for lyrics and save plain or synchronized lyrics beside audio files.
 - Analyze BPM and musical key locally, with confidence estimates and Camelot notation.
 - Find exact duplicate files and move selected duplicates to the system trash after confirmation.
